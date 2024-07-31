@@ -1,46 +1,79 @@
-﻿using PointService;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using PointService;
 
-var filePath = $"{AppContext.BaseDirectory}/Resources/points.txt";
-
-var pointManager = new PointManager();
-
-using var reader = new StreamReader(filePath);
-var line = reader.ReadLine();
-while (line != null)
+internal class Program
 {
-    // TODO: Input validation
-    var point = line
-        .Trim()
-        .Split(",", StringSplitOptions.RemoveEmptyEntries)
-        .ToArray();
-
-    if (point.Length <= 1)
+    private static void Main(string[] args)
     {
-        // TODO: skiping only this point or handle it as a exeption;
-        line = reader.ReadLine();
-        continue;
+        var fileName = "points.txt";
+        var directory = Path.Combine(AppContext.BaseDirectory, "Resources");
+        var filePath = Path.Combine(directory, fileName);
+
+        var serviceCollection = new ServiceCollection();
+        ConfigureServices(serviceCollection);
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+        var pointManager = new PointManager();
+
+        try
+        {
+            using var reader = new StreamReader(filePath);
+
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                var point = line
+                    .Split(",", StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => x.Trim())
+                    .ToArray();
+
+                if (point.Length != 2)
+                {
+                    logger.LogInformation(Constants.InvalidPoint, line);
+                    continue;
+                }
+
+                var x = TryParseNullable(point[0]);
+                var y = TryParseNullable(point[1]);
+                if (x is null || y is null)
+                {
+                    logger.LogInformation(Constants.InvalidPoint, line);
+                    continue;
+                }
+
+                pointManager.AddPoint(x.Value, y.Value);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, Constants.ExeptionMessage);
+            return;
+        }
+
+        var furthestPoints = pointManager.GetFurthestPointsOrDefault();
+        Console.WriteLine(Constants.OutputTitle);
+        if (furthestPoints is null || !furthestPoints.Any())
+        {
+            Console.WriteLine(Constants.NoDataTitle);
+            return;
+        }
+
+        foreach (var point in furthestPoints)
+        {
+            Console.WriteLine(string.Format(Constants.OutputTemplate, point.X, point.Y, point.Quadrant));
+        }
     }
 
-    // TODO: What type must X and Y be.
-    var x = TryParseNullable(point[0]);
-    var y = TryParseNullable(point[1]);
-
-    if(x is null || y is null)
+    static void ConfigureServices(IServiceCollection services)
     {
-        // TODO: skiping only this point or handle it as a exeption;
-        line = reader.ReadLine();
-        continue;
+        services.AddLogging(configure => configure.AddConsole())
+                .Configure<LoggerFilterOptions>(options => options.MinLevel = LogLevel.Information);
     }
 
-    pointManager.AddPoint(x.Value, y.Value);
-    line = reader.ReadLine();
+    static double? TryParseNullable(string s)
+    {
+        return double.TryParse(s, out double value) ? value : null;
+    }
 }
-
-foreach (var point in pointManager.GetFurthestPointsOrDefault() ?? [])
-{
-    // TODO: How they like to be printed?
-    Console.WriteLine($"X => {point.X}, Y => {point.Y}, Quadrant => {point.Quadrant}");
-}
-
-static double? TryParseNullable(string s)
-    => double.TryParse(s, out double value) ? value : null;
